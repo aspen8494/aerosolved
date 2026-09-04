@@ -22,21 +22,46 @@ you're looking at now):
 
 ```bash
 # System Qt / Python — one of these
-sudo apt-get install python3-pyqt6          # for PyQt6, OR
-pip install --user pySide6                  # for PySide6, OR
+sudo apt-get install python3-pyqt6           # for PyQt6, OR
+pip install --user pySide6                   # for PySide6, OR
 conda install -c conda-forge pyside6
 
 # Python deps (the solver's own deps live in the repo's requirements.txt)
 pip install --user -r ui/requirements-ui.txt
 ```
 
+### First-run gotchas (Linux / Qt `xcb` platform plugin)
+
+On Linux, Qt needs the system **xcb** platform plugin, which in turn needs the
+`xcb-cursor0` library.  If the window fails to open with a log like:
+
+```
+qt.qpa.plugin: From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load the
+Qt xcb platform plugin.
+qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "" even though it
+was found.
+```
+
+install it:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y libxcb-cursor0
+```
+
+A missing display is the other common cause — run over X11 forwarding or with:
+
+```bash
+xvfb-run python ui/run_gui.py
+```
+
 ## Run
 
 ```bash
 # The launcher
-python -m ui
+python ui/run_gui.py
 # or, explicitly
-python ui/frontend/app.py
+python -m ui
 ```
 
 The main window opens with every available case in a drop-down. Pick a case,

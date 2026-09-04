@@ -1,8 +1,8 @@
 """Pytest fixtures for the ui/ package tests."""
 import os
 import sys
-import tempfile
-import numpy as np
+import types
+
 import pytest
 
 UI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,72 +17,141 @@ def repo_root():
 
 
 @pytest.fixture
-def fake_case():
-    """Minimal fake case: Allrun + postProcessing output matching rain."""
-    src = tempfile.mkdtemp(prefix="aerosolved_fake_case_")
-    os.makedirs(os.path.join(src, "system"), exist_ok=True)
-    os.makedirs(os.path.join(src, "constant"), exist_ok=True)
-    open(os.path.join(src, "system", "controlDict"), "w").write("application aerosolEulerFoam;\n")
-    open(os.path.join(src, "constant", "aerosolProperties"), "w").write("fixedSectionalCoeffs{ distribution{ yMin 1E-24; yMax 1E-10; N 10; } }\n")
-    allrun = '#!/bin/bash\nset -e\necho "Running blockMesh"\necho "Running setFields on $PWD"\necho "Courant Number: 0.12 deltaT: 0.5"\npython3 - <<"PY"\nimport numpy as np, os\nfor sub in ("numberFlux","massFlux"):\n    os.makedirs("postProcessing/"+sub+"/0", exist_ok=True)\nt = np.linspace(0,1000,31); N = 10\nnp.savetxt("postProcessing/numberFlux/0/patch.top.dat",    np.column_stack([t, np.random.rand(31,N)]))\nnp.savetxt("postProcessing/numberFlux/0/patch.bottom.dat", np.column_stack([t, np.random.rand(31,N)*0.3]))\nnp.savetxt("postProcessing/massFlux/0/patch.top.dat",    np.column_stack([t, np.random.rand(31,N)*1e-9]))\nnp.savetxt("postProcessing/massFlux/0/patch.bottom.dat", np.column_stack([t, np.random.rand(31,N)*3e-10]))\nPY\necho "Done"\n'
-    open(os.path.join(src, "Allrun"), "w").write(allrun)
-    os.chmod(os.path.join(src, "Allrun"), 0o755)
-    return src
+def fake_run_dir(tmp_path):
+    """A realistic postProcessing/ tree: 2-D data, like real rain output."""
+    run = tmp_path / "run"
+    base = run / "postProcessing" / "numberFlux" / "0"
+    base.mkdir(parents=True, exist_ok=True)
+    # 3 time slices x 5 diameter bins, tab-separated (first col = time)
+    top = "0.0\t1.0 2.0 3.0 4.0 5.0\n"
+    top += "1.0\t1.1 2.1 3.1 4.1 5.1\n"
+    top += "2.0\t1.2 2.2 3.2 4.2 5.2\n"
+    bot = "0.0\t0.5 1.0 1.5 2.0 2.5\n"
+    bot += "1.0\t0.5 1.1 1.6 2.1 2.6\n"
+    bot += "2.0\t0.6 1.2 1.7 2.2 2.7\n"
+    (base / "patch.top.dat").write_text(top)
+    (base / "patch.bottom.dat").write_text(bot)
+    # massFlux budget (species columns: vapor air droplet)
+    mbase = tmp_path / "run" / "postProcessing" / "massFlux" / "0"
+    mbase.mkdir(parents=True, exist_ok=True)
+    (mbase / "patch.top.dat").write_text("0.0\t0.1 0.2 0.3\n")
+    (mbase / "patch.bottom.dat").write_text("0.0\t0.05 0.1 0.15\n")
+    return str(run)
 
 
 @pytest.fixture
-def fake_run_dir():
-    d = tempfile.mkdtemp(prefix="aerosolved_run_")
-    pp = os.path.join(d, "postProcessing")
-    os.makedirs(os.path.join(pp, "numberFlux", "0"), exist_ok=True)
-    os.makedirs(os.path.join(pp, "massFlux", "0"),       exist_ok=True)
-    t = np.linspace(0, 1000, 31); N = 10
-    np.savetxt(os.path.join(pp, "numberFlux", "0", "patch.top.dat"),    np.column_stack([t, np.random.rand(31, N)]))
-    np.savetxt(os.path.join(pp, "numberFlux", "0", "patch.bottom.dat"), np.column_stack([t, np.random.rand(31, N) * 0.3]))
-    np.savetxt(os.path.join(pp, "massFlux", "0", "patch.top.dat"),    np.column_stack([t, np.random.rand(31, N) * 1e-9]))
-    np.savetxt(os.path.join(pp, "massFlux", "0", "patch.bottom.dat"), np.column_stack([t, np.random.rand(31, N) * 3e-10]))
-    return d
+def fake_case(tmp_path):
+    """A minimal case dir whose Allrun emits Courant Number then writes pp/."""
+    case = tmp_path / "case"
+    case.mkdir()
+    sh = "#!/bin/bash\n"
+    sh += "echo Coursant\n"
+    sh += "echo Courant Number\n"
+    sh += "mkdir -p postProcessing/numberFlux/0\n"
+    sh += 'printf "0.0\\t1.0 2.0 3.0 4.0 5.0\\n" > postProcessing/numberFlux/0/patch.top.dat\n'
+    sh += 'printf "1.0\\t1.1 2.1 3.1 4.1 5.1\\n" >> postProcessing/numberFlux/0/patch.top.dat\n'
+    (case / "Allrun").write_text(sh)
+    os.chmod(str(case / "Allrun"), 0o755)
+    return str(case)
 
 
 @pytest.fixture
 def mock_qt():
-    class QtWidgets:
+    """A minimal fake of PySide6 enough to build MainWindow."""
+    QtCore = types.SimpleNamespace()
+    QtWidgets = types.ModuleType("QtWidgets")
+
+    class Signal:
+        def connect(self, *a, **k): pass
+        def __call__(self, *a, **k): pass
+
+    class QWidget:
+        def __init__(self, *a, **k):
+            self._cw = None
+        def show(self): pass
+        def addWidget(self, *a, **k): pass
+        def addLayout(self, *a, **k): pass
+        def insertLayout(self, *a, **k): pass
+        def centralWidget(self):
+            self._cw = self._cw or types.SimpleNamespace(
+                layout=lambda: None,
+                _layout=types.SimpleNamespace(insertLayout=lambda *a, **k: None))
+            return self._cw
+
+    class QLabel(QWidget):
+        def __init__(self, t="", *a, **k):
+            super().__init__()
+            self._text = str(t)
+        def setText(self, t): self._text = str(t)
+        def text(self): return self._text
+
+    class QComboBox(QWidget):
+        def __init__(self, *a, **k):
+            super().__init__()
+            self._items = []
+            self.currentTextChanged = Signal()
+        def addItems(self, items): self._items.extend(items)
+        def addItem(self, item): self._items.append(item)
+        def currentText(self): return (self._items[0] if self._items else "")
+
+    class QFormLayout(QWidget):
+        def addRow(self, *a, **k): pass
+        def addLayout(self, *a, **k): pass
+
+    class QHBoxLayout(QWidget):
+        def addLayout(self, *a, **k): pass
+        def addWidget(self, *a, **k): pass
+        def insertLayout(self, *a, **k): pass
+
+    class QVBoxLayout(QWidget):
+        def addLayout(self, *a, **k): pass
+        def addWidget(self, *a, **k): pass
+        def insertLayout(self, *a, **k): pass
+
+    class QSplitter(QWidget):
+        def addWidget(self, *a, **k): pass
+
+    class QMainWindow(QWidget):
+        def show(self): pass
+        def setWindowTitle(self, t): pass
+        def resize(self, *a, **k): pass
+        def centralWidget(self): return types.SimpleNamespace(layout=lambda: None)
+
+    class QPushButton(QWidget):
+        def __init__(self, *a, **k):
+            super().__init__()
+            self.clicked = Signal()
+        def clicked(self, *a, **k): pass
+
+    class QPlainTextEdit(QWidget):
+        def __init__(self, *a, **k):
+            super().__init__()
+            self._text = ""
+        def setPlainText(self, t): self._text = str(t)
+        def appendPlainText(self, t): self._text += str(t) + "\n"
+        def toPlainText(self): return self._text
+
+    QtWidgets.QWidget = QWidget
+    QtWidgets.QLabel = QLabel
+    QtWidgets.QComboBox = QComboBox
+    QtWidgets.QFormLayout = QFormLayout
+    QtWidgets.QHBoxLayout = QHBoxLayout
+    QtWidgets.QVBoxLayout = QVBoxLayout
+    QtWidgets.QSplitter = QSplitter
+    QtWidgets.QMainWindow = QMainWindow
+    QtWidgets.QPushButton = QPushButton
+    QtWidgets.QPlainTextEdit = QPlainTextEdit
+
+    class QApplication:
         @classmethod
-        def QComboBox(cls):
-            class Combo:
-                def __init__(self, *a, **k):
-                    self._items = []
-                def addItem(self, v):
-                    self._items.append(v)
-                def count(self):
-                    return len(self._items)
-            return Combo()
+        def exec(cls): return 0
         @classmethod
-        def QPushButton(cls, *a, **k):
-            class B:
-                def click(self, *a, **k): pass
-            return B()
-        @classmethod
-        def QPlainTextEdit(cls, *a, **k):
-            class T:
-                def appendPlainText(self, v): pass
-            return T()
-        @classmethod
-        def QLabel(cls, *a, **k):
-            class L:
-                def setText(self, v): pass
-            return L()
-        @classmethod
-        def QApplication(cls, *a, **k):
-            class App:
-                @staticmethod
-                def instance(): return None
-                @staticmethod
-                def exec(): return 11
-            return App()
-    return type("qt_mock", (), {
-         "QtWidgets": QtWidgets,
-         "QtGui": type("QtGui", (), {"QColor": lambda *a, **k: None}),
-         "QtCore": type("QtCore", (), {}),
-         "binding": "mock",
-     })()
+        def instance(cls): return None
+    QtWidgets.QApplication = QApplication
+    QtCore.QApplication = QApplication
+
+    return types.SimpleNamespace(
+        QtCore=QtCore,
+        QtWidgets=QtWidgets,
+        QtGui=types.SimpleNamespace(),
+    )
