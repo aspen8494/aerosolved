@@ -294,19 +294,24 @@ class MainWindow:
         self._window = win_cls()
         self._window.setWindowTitle("AeroSolved -- scenario console")
         self._window.resize(1100, 720)
-        central = self._window.centralWidget()
+        central = self.qt.QtWidgets.QWidget()
+        self._central = central
         root = self.qt.QtWidgets.QVBoxLayout(central)
+        self._central_layout = root
         top = self.qt.QtWidgets.QHBoxLayout()
         top.addWidget(self.qt.QtWidgets.QLabel("case:"))
         top.addWidget(self.cases_picker)
         top.addWidget(self.run_button)
         top.addWidget(self.phase_label)
         root.addLayout(top)
-        self._rebuild_knob_form()
         split = self.qt.QtWidgets.QSplitter()
         split.addWidget(self.log_view)
         split.addWidget(self.results_view)
         root.addWidget(split)
+        self._form_host = None
+        self._form_index = root.count() if hasattr(root, "count") else 1
+        self._window.setCentralWidget(central)
+        self._rebuild_knob_form()
         if hasattr(self.cases_picker, "currentTextChanged"):
             self.cases_picker.currentTextChanged.connect(self.on_case_changed)
         if hasattr(self.run_button, "clicked"):
@@ -315,8 +320,57 @@ class MainWindow:
     def _rebuild_knob_form(self):
         if self.knobs is None:
             return
-        self.form_widgets, form = build_knob_form(self.knobs, self.qt)
-        self._window.centralWidget().layout().insertLayout(1, form)
+        root = getattr(self, "_central_layout", None)
+        if root is None:
+            return
+        old = getattr(self, "_form_host", None)
+        if old is not None:
+            for fn in ("removeWidget", "removeItem"):
+                rm = getattr(root, fn, None)
+                if rm is not None:
+                    try:
+                        rm(old)
+                        break
+                    except Exception:
+                        continue
+            try:
+                old.setParent(None)
+            except Exception:
+                pass
+            try:
+                old.deleteLater()
+            except Exception:
+                pass
+        form = self._build_form()
+        host = self.qt.QtWidgets.QWidget()
+        host.setLayout(form)
+        idx = getattr(self, "_form_index", 1)
+            # insert in the slot left open at build time (between top + splitter)
+        if not hasattr(root, "insertWidget"):
+            root.addWidget(host)
+        else:
+            try:
+                root.insertWidget(idx, host)
+            except Exception:
+                root.addWidget(host)
+        self._form_host = host
+
+    def _build_form(self):
+        widgets = {}
+        form = self.qt.QtWidgets.QFormLayout()
+        for v in self.knobs.case.vars:
+            name = v.name
+            text = self.knobs.get_default(name)
+            choices = list(getattr(v, "choices", []) or [])
+            if choices:
+                w = self.qt.QtWidgets.QComboBox()
+                w.addItems([str(c) for c in choices])
+            else:
+                w = self.qt.QtWidgets.QLineEdit(str(text))
+            widgets[name] = w
+            form.addRow(name + ":", w)
+        self.form_widgets = widgets
+        return form
 
     # -- signals / actions --
     def on_case_changed(self, text):

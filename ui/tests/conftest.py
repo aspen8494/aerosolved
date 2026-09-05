@@ -68,15 +68,35 @@ def mock_qt():
     class QWidget:
         def __init__(self, *a, **k):
             self._cw = None
+            self._parent = None
+            self._layout = None
         def show(self): pass
+        def setParent(self, p=None):
+            self._parent = p
+        def deleteLater(self, *a, **k): pass
+        def setLayout(self, l):
+            self._layout = l
+        def layout(self):
+            return self._layout
         def addWidget(self, *a, **k): pass
         def addLayout(self, *a, **k): pass
         def insertLayout(self, *a, **k): pass
+        def insertWidget(self, *a, **k): pass
+        def removeItem(self, *a, **k): pass
+        def removeLayout(self, *a, **k): pass
+        def removeWidget(self, *a, **k): pass
         def centralWidget(self):
             self._cw = self._cw or types.SimpleNamespace(
                 layout=lambda: None,
                 _layout=types.SimpleNamespace(insertLayout=lambda *a, **k: None))
             return self._cw
+
+    class QLineEdit(QWidget):
+        def __init__(self, t="", *a, **k):
+            super().__init__()
+            self._text = str(t)
+        def text(self): return self._text
+        def setText(self, t): self._text = str(t)
 
     class QLabel(QWidget):
         def __init__(self, t="", *a, **k):
@@ -115,7 +135,10 @@ def mock_qt():
         def show(self): pass
         def setWindowTitle(self, t): pass
         def resize(self, *a, **k): pass
-        def centralWidget(self): return types.SimpleNamespace(layout=lambda: None)
+        def setCentralWidget(self, w):
+            self._central = w
+        def centralWidget(self):
+            return getattr(self, "_central", None)
 
     class QPushButton(QWidget):
         def __init__(self, *a, **k):
@@ -133,6 +156,7 @@ def mock_qt():
 
     QtWidgets.QWidget = QWidget
     QtWidgets.QLabel = QLabel
+    QtWidgets.QLineEdit = QLineEdit
     QtWidgets.QComboBox = QComboBox
     QtWidgets.QFormLayout = QFormLayout
     QtWidgets.QHBoxLayout = QHBoxLayout
